@@ -24,7 +24,7 @@ def main():
     updater = Updater(token)
     dp = updater.dispatcher
 
-    dp.add_handler(CommandHandler('start', start))
+    dp.add_handler(CommandHandler('start', start, pass_user_data=True))
     dp.add_handler(CommandHandler('info', info, pass_user_data=True))
     dp.add_handler(CommandHandler('save_module', finish_adding, pass_user_data=True))
     dp.add_handler(CommandHandler('find_out', find_out, pass_user_data=True))
@@ -139,7 +139,7 @@ def back_to_menu(bot, update, user_data):
     user_data['info_message'] = False
 
 
-def start(bot, update):
+def start(bot, update, user_data):
     text = 'Привет! Я - бот Word for World. ' \
            'Я помогу вам выучить иностранные слова или термины и определения. ' \
            'Вот основные функции, которые вам понадобятся:\n'
@@ -148,6 +148,7 @@ def start(bot, update):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Информация', callback_data='main_info')],
                                      [InlineKeyboardButton(text='Добавить модуль', callback_data='add_mod|1|2|3')],
                                      [InlineKeyboardButton(text='Тренироваться', callback_data='train')]])
+    user_data['info_message'] = None
     try:
         update.message.reply_text(text, reply_markup=keyboard)
     except Exception as e:
