@@ -20,7 +20,7 @@ def find_out(bot, update, user_data):
 
 
 def main():
-    token = '812410140:AAECjhbi19Q43rDt654K1El3wxaQXYuMmTo'
+    token = '802480610:AAGWxK1UkY9p-WW99yr6Mu4mBypaGD-3rFM'
     updater = Updater(token)
     dp = updater.dispatcher
 
