@@ -26,29 +26,63 @@ def main():
 
     dp.add_handler(CommandHandler('start', start, pass_user_data=True))
     dp.add_handler(CommandHandler('info', info, pass_user_data=True))
-    dp.add_handler(CommandHandler('save_module', finish_adding, pass_user_data=True))
     dp.add_handler(CommandHandler('find_out', find_out, pass_user_data=True))
     dp.add_handler(CommandHandler('menu', back_to_menu))
     dp.add_handler(CommandHandler('add_module', start_adding, pass_user_data=True))
     dp.add_handler(CommandHandler('OK', word_def_ok, pass_user_data=True))
     dp.add_handler(CallbackQueryHandler(inline_q_handler, pass_user_data=True))
     dp.add_handler(MessageHandler(Filters.text, message_updater, pass_user_data=True))
+    dp.add_handler(MessageHandler(Filters.photo, image_updater, pass_user_data=True))
 
     updater.start_polling()
 
     updater.idle()
 
 
+def image_updater(bot, update, user_data):
+    print(update.message.caption)
+    try:
+        data = update.message.photo
+        if 'new_module' in user_data.keys() and user_data['new_module']['adding_sets']:
+            new_set = tuple(update.message.caption.split('='))
+            if (len(new_set) == 2 and (
+                    user_data['new_module']['type'] == 'w_t' or user_data['new_module']['type'] == 'w_def')) or (
+                    len(new_set) == 3 and (
+                    user_data['new_module']['type'] == '3_wupdate.messageupdate.message' or user_data['new_module']['type'] == 'w_t_e')) or (
+                    len(new_set) == 4 and user_data['new_module']['type'] == '4_w'):
+                im_name = str(update.message.from_user.id) + str(update.message.message_id) + '.jpg'
+                user_data['new_module']['sets'].append({'set': new_set, 'image': im_name})
+                try:
+                    ph = data[1].get_file().download(
+                        custom_path='users_data/images/' + im_name)
+                    print('file got', ph)
+                except Exception as ex:
+                    print(ex)
+                    update.message.reply_text('Какие-то проблемы с сохранением картинки. Эта пара '
+                                              'не сохранена. Попробуйте вновь, либо продолжайте ввод')
+                    del user_data['new_module']['sets'][-1]
+            else:
+                update.message.reply_text('Вы ввели что-то не то')
+        else:
+            update.message.reply_text('Вы прислали мне картинку. Но зачем?🤷‍♂️')
+    except Exception as ex:
+        print('ошибка при добавлении', ex)
+
+
 def message_updater(bot, update, user_data):
     text = update.message.text
 
-    if 'new_module' in user_data.keys() and user_data['new_module']['need_name']:
+    if text == '📥 Сохранить модуль':
+        finish_adding(bot, update, user_data)
+
+    elif 'new_module' in user_data.keys() and user_data['new_module']['need_name']:
         if not db_work.ModulesDB.query.filter_by(name=text).all():
             user_data['new_module']['name'] = text
             user_data['new_module']['need_name'] = False
             ask_for_type(bot, update)
         else:
             update.message.reply_text('Такой модуль уже существует. Введите другое имя')
+
     elif 'new_module' in user_data.keys() and user_data['new_module']['adding_sets']:
         new_set = tuple(update.message.text.split('='))
         if (len(new_set) == 2 and (
@@ -56,21 +90,14 @@ def message_updater(bot, update, user_data):
                 len(new_set) == 3 and (
                 user_data['new_module']['type'] == '3_w' or user_data['new_module']['type'] == 'w_t_e')) or (
                 len(new_set) == 4 and user_data['new_module']['type'] == '4_w'):
-            user_data['new_module']['sets'].append(new_set)
+            user_data['new_module']['sets'].append({'set': new_set, 'image': ''})
         else:
             update.message.reply_text('Вы ввели что-то не то')
-    elif 'training' in user_data.keys() and 'is_training' in user_data['training'].keys() and user_data['training'][
-        'is_training']:
-        if text.lower() == user_data['training']['answer'].lower():
-            update.message.reply_text('Верно')
-            user_data['training']['type'](bot, update, user_data, user_data['training']['mode'])
-        else:
-            try:
-                update.message.reply_text('Неверно. Правильный ответ:\n' + user_data['training']['answer'])
-                user_data['training']['sets'].insert(0, user_data['training']['question'])
-                user_data['training']['type'](bot, update, user_data, user_data['training']['mode'])
-            except Exception as e:
-                print(e)
+
+    elif 'training' in user_data.keys() and 'is_training' in user_data['training'].keys() and \
+            user_data['training']['is_training']:
+        trains.check_answer(bot, update, user_data, text)
+
     else:
         update.message.reply_text('Извините, но я вас не понимаю')
 
@@ -78,6 +105,7 @@ def message_updater(bot, update, user_data):
 def finish_adding(bot, update, user_data):
     try:
         if 'new_module' in user_data.keys() and user_data['new_module']['process']:
+            print(user_data['new_module']['sets'])
             if user_data['new_module']['sets']:
                 module = db_work.ModulesDB(user_id=update.effective_user.id,
                                            name=user_data['new_module']['name'],
@@ -87,10 +115,11 @@ def finish_adding(bot, update, user_data):
                 module_id = db_work.ModulesDB.query.filter_by(name=user_data['new_module']['name']).first().module_id
                 for s in user_data['new_module']['sets']:
                     new_set = db_work.WordsSets(module_id=module_id,
-                                                word1=s[0],
-                                                word2=s[1],
-                                                word3='' if len(s) < 3 else s[2],
-                                                word4='' if len(s) < 4 else s[3], )
+                                                word1=s['set'][0],
+                                                word2=s['set'][1],
+                                                word3='' if len(s['set']) < 3 else s['set'][2],
+                                                word4='' if len(s['set']) < 4 else s['set'][3],
+                                                image=s['image'])
                     db_work.db.session.add(new_set)
                 db_work.db.session.commit()
                 update.message.reply_text('Модуль сохранен!')
@@ -102,7 +131,7 @@ def finish_adding(bot, update, user_data):
         else:
             update.message.reply_text('Эта функция не работает вне процесса создания модуля')
     except Exception as ex:
-        print(32323, ex)
+        print('Error in module saving', ex)
 
 
 def info(bot, update, user_data):
@@ -196,12 +225,13 @@ def inline_q_handler(bot, update, user_data):
         bot.send_message(chat_id=update.callback_query.from_user.id,
                          text='Вы выбрали тип {}'.format(modules_type_codes[args[0]].lower()))
 
-        reply_keyboard = [['/save_module']]
+        reply_keyboard = [['📥 Сохранить модуль']]
         markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
         bot.send_message(chat_id=update.callback_query.from_user.id,
                          text='Теперь вам нужно вводить пары (тройки/четверки) слов '
-                              'или слово и определение, разделенные знаком "=" без пробелов например "привет=hello".'
-                              'чтобы закончить ввод, нажмите на кнопку ниже',
+                              'или слово и определение, разделенные знаком "=" без пробелов например '
+                              '"hello=привет" (в зависимости от модуля). Чтобы закончить ввод, '
+                              'нажмите на кнопку ниже',
                          reply_markup=markup)
         user_data['new_module']['adding_sets'] = True
         user_data['new_module']['sets'] = []
@@ -255,36 +285,7 @@ def inline_q_handler(bot, update, user_data):
                                       reply_markup=keyboard)
 
     def to_train(*args):
-        bot.delete_message(chat_id=update.effective_user.id,
-                           message_id=user_data['training']['choose_module_btns'].message_id)
-        bot.send_message(chat_id=update.effective_user.id,
-                         text='Тренировка ' + args[0])
-        user_data['training']['is_training'] = True
-        module_id = user_data['training']['active_module'].module_id
-        sets = db_work.WordsSets.query.filter_by(module_id=module_id).all()
-        random.shuffle(sets)
-        user_data['training']['sets'] = sets
-
-        if args[0] == 'Слово - Перевод':
-            trains.word_translate(bot, update, user_data)
-            user_data['training']['mode'] = None
-        elif args[0] == 'Перевод - Слово':
-            trains.translate_word(bot, update, user_data)
-            user_data['training']['mode'] = None
-        elif args[0] == 'Определение - Термин':
-            trains.def_word(bot, update, user_data)
-            user_data['training']['mode'] = None
-        elif args[0] == 'Термин - Определение':
-            trains.word_def(bot, update, user_data)
-            user_data['training']['mode'] = None
-        elif args[0] == 'Одно слово - Остальные два':
-            trains.two_or_three(bot, update, user_data, 3)
-            user_data['training']['mode'] = 3
-        elif args[0] == 'Одно слово - Остальные три':
-            trains.two_or_three(bot, update, user_data, 4)
-            user_data['training']['mode'] = 4
-        elif args[0] == 'Повторение':
-            trains.revising(bot, update, user_data)
+        trains.start(bot, update, user_data, *args)
 
     method, *payload = update.callback_query.data.split('|')
     try:
@@ -361,7 +362,9 @@ def word_def_ok(bot, update, user_data):
         except Exception as ex:
             print(ex)
     elif user_data['training']['type'] == trains.word_def:
+        update.message.reply_text('Определение\n' + str(user_data['training']['answer']))
         trains.word_def(bot, update, user_data)
+
 
 
 if __name__ == '__main__':

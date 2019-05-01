@@ -25,6 +25,7 @@ class WordsSets(db.Model):
     word2 = db.Column(db.String(350), unique=False, nullable=False)
     word3 = db.Column(db.String(60), unique=False, nullable=True)
     word4 = db.Column(db.String(60), unique=False, nullable=True)
+    image = db.Column(db.String(100), unique=False, nullable=False)
 
     def __repr__(self):
         return '<WordsSets {} {} {} {} {}>'.format(
