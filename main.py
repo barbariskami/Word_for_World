@@ -1,10 +1,9 @@
 from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, CallbackQueryHandler, ConversationHandler
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 import infoDetails
-import json
 import db_work
 import trains
-import random
+import modules_work_tools
 
 modules_type_codes = {'w_t': 'Слово - перевод', 'w_def': 'Слово - определение', '3_w': '3 слова', '4_w': '4 слова',
                       'w_t_e': 'Слово - перевод - определение', }
@@ -29,7 +28,7 @@ def main():
     dp.add_handler(CommandHandler('find_out', find_out, pass_user_data=True))
     dp.add_handler(CommandHandler('menu', back_to_menu))
     dp.add_handler(CommandHandler('add_module', start_adding, pass_user_data=True))
-    dp.add_handler(CommandHandler('OK', word_def_ok, pass_user_data=True))
+    dp.add_handler(CommandHandler('OK', trains.word_def_ok, pass_user_data=True))
     dp.add_handler(CallbackQueryHandler(inline_q_handler, pass_user_data=True))
     dp.add_handler(MessageHandler(Filters.text, message_updater, pass_user_data=True))
     dp.add_handler(MessageHandler(Filters.photo, image_updater, pass_user_data=True))
@@ -48,7 +47,8 @@ def image_updater(bot, update, user_data):
             if (len(new_set) == 2 and (
                     user_data['new_module']['type'] == 'w_t' or user_data['new_module']['type'] == 'w_def')) or (
                     len(new_set) == 3 and (
-                    user_data['new_module']['type'] == '3_wupdate.messageupdate.message' or user_data['new_module']['type'] == 'w_t_e')) or (
+                    user_data['new_module']['type'] == '3_wupdate.messageupdate.message' or user_data['new_module'][
+                'type'] == 'w_t_e')) or (
                     len(new_set) == 4 and user_data['new_module']['type'] == '4_w'):
                 im_name = str(update.message.from_user.id) + str(update.message.message_id) + '.jpg'
                 user_data['new_module']['sets'].append({'set': new_set, 'image': im_name})
@@ -158,9 +158,9 @@ def info(bot, update, user_data):
 
 def back_to_menu(bot, update, user_data):
     text = 'Выбери нужную опцию'
-    button1 = InlineKeyboardButton(text='Информация', callback_data='main_info')
-    button2 = InlineKeyboardButton(text='Добавить модуль', callback_data='add_mod|1|2|3')
-    button3 = InlineKeyboardButton(text='Тренироваться', callback_data='train')
+    button1 = InlineKeyboardButton(text='❓Информация', callback_data='main_info')
+    button2 = InlineKeyboardButton(text='📋Работа с модулями', callback_data='modules_work')
+    button3 = InlineKeyboardButton(text='✏️Тренироваться️', callback_data='train')
     keyboard = InlineKeyboardMarkup([[button1],
                                      [button2],
                                      [button3]])
@@ -173,10 +173,11 @@ def start(bot, update, user_data):
            'Я помогу вам выучить иностранные слова или термины и определения. ' \
            'Вот основные функции, которые вам понадобятся:\n'
     text += open('texts/start.txt', mode='r', encoding='utf8').read()
+    user_data = {}
 
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Информация', callback_data='main_info')],
-                                     [InlineKeyboardButton(text='Добавить модуль', callback_data='add_mod|1|2|3')],
-                                     [InlineKeyboardButton(text='Тренироваться', callback_data='train')]])
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='❓Информация', callback_data='main_info')],
+                                     [InlineKeyboardButton(text='📋Работа с модулями', callback_data='modules_work')],
+                                     [InlineKeyboardButton(text='✏️Тренироваться', callback_data='train')]])
     user_data['info_message'] = None
     try:
         update.message.reply_text(text, reply_markup=keyboard)
@@ -191,11 +192,26 @@ def inline_q_handler(bot, update, user_data):
     def main_info():
         info(bot, update, user_data)
 
+    def modules_work(*args):
+        modules_work_menu(bot, update)
+
     def add_mod(*args):
         start_adding(bot, update, user_data)
 
+    def edit_mod(*args):
+        pass
+
+    def del_mod(*args):
+        pass
+
+    def share_mod(*args):
+        modules_work_tools.share_mod(bot, update, user_data)
+
+    def download_mod(*args):
+        pass
+
     def train(*args):
-        start_training(bot, update, user_data)
+        trains.choose_module(bot, update, user_data)
 
     def back_to_main(*args):
         back_to_menu(bot, update, user_data)
@@ -264,6 +280,7 @@ def inline_q_handler(bot, update, user_data):
             button = [InlineKeyboardButton(text='<-', callback_data='page_back|' + args[0]),
                       InlineKeyboardButton(text='->', callback_data='page_forward|' + str(int(args[0]) + 10))]
             keyboard.append(button)
+        keyboard.append([InlineKeyboardButton(text='Главное меню', callback_data='back_to_main')])
         keyboard = InlineKeyboardMarkup(keyboard)
         bot.edit_message_reply_markup(chat_id=update.effective_user.id,
                                       message_id=user_data['training']['choose_module_btns'].message_id,
@@ -279,6 +296,7 @@ def inline_q_handler(bot, update, user_data):
             button = [InlineKeyboardButton(text='<-', callback_data='page_back|' + str(int(args[0]) - 10))]
         button.append(InlineKeyboardButton(text='->', callback_data='page_forward|' + args[0]))
         keyboard.append(button)
+        keyboard.append([InlineKeyboardButton(text='Главное меню', callback_data='back_to_main')])
         keyboard = InlineKeyboardMarkup(keyboard)
         bot.edit_message_reply_markup(chat_id=update.effective_user.id,
                                       message_id=user_data['training']['choose_module_btns'].message_id,
@@ -304,6 +322,17 @@ def start_adding(bot, update, user_data):
     user_data['new_module']['need_name'] = True
 
 
+def modules_work_menu(bot, update):
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Добавить модуль', callback_data='add_mod')],
+                                     [InlineKeyboardButton(text='Редактировать модуль', callback_data='edit_mod')],
+                                     [InlineKeyboardButton(text='Удалить модуль', callback_data='del_mod')],
+                                     [InlineKeyboardButton(text='Поделиться модулем', callback_data='share_mod')],
+                                     [InlineKeyboardButton(text='Модуль из кода', callback_data='download_mod')]
+                                     ])
+    text = 'Выберите дальнейшее действие'
+    bot.send_message(update.effective_user.id, text, reply_markup=keyboard)
+
+
 def ask_for_type(bot, update):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Слово - перевод', callback_data='set_type|w_t')],
                                      [InlineKeyboardButton(text='Слово - определение', callback_data='set_type|w_def')],
@@ -317,54 +346,6 @@ def ask_for_type(bot, update):
         update.message.reply_text('Теперь выбери тип модуля', reply_markup=keyboard)
     except Exception as ex:
         print(10101, ex)
-
-
-def start_training(bot, update, user_data):
-    modules = sorted(db_work.ModulesDB.query.filter_by(user_id=update.effective_user.id).all(),
-                     key=lambda x: x.module_id,
-                     reverse=True)
-    if modules:
-        text = 'Выберите модуль, который хотите тренировать (если созданных вами модулей больше ' \
-               '10, они отображаются по 10'
-        user_data['training'] = {}
-        user_data['training']['modules'] = modules
-        keyboard = []
-        if len(modules) <= 10:
-            for i in modules:
-                button = [InlineKeyboardButton(text=i.name, callback_data='set_active_module|' + str(i.module_id))]
-                keyboard.append(button)
-        else:
-            for i in modules[:10]:
-                button = [InlineKeyboardButton(text=i.name, callback_data='set_active_module|' + str(i.module_id))]
-                keyboard.append(button)
-            button = [InlineKeyboardButton(text='->', callback_data='page_forward|10')]
-            keyboard.append(button)
-        keyboard = InlineKeyboardMarkup(keyboard)
-        try:
-            user_data['training']['choose_module_btns'] = bot.send_message(update.effective_user.id, text,
-                                                                           reply_markup=keyboard)
-        except Exception as ex:
-            print(2121, ex)
-    else:
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Добавить модуль', callback_data='add_mod')]])
-        bot.send_message(update.effective_user.id,
-                         'Вы еще не создали ни одного модуля. Создайте и начните тренироваться прямо сейчас!',
-                         reply_markup=keyboard)
-
-
-def word_def_ok(bot, update, user_data):
-    if user_data['training']['type'] == trains.revising:
-        try:
-            bot.send_message(update.effective_user.id,
-                             text='Слово: ' + user_data['training']['question'].word1 + ' - ' + user_data['training'][
-                                 'question'].word2)
-            trains.revising(bot, update, user_data)
-        except Exception as ex:
-            print(ex)
-    elif user_data['training']['type'] == trains.word_def:
-        update.message.reply_text('Определение\n' + str(user_data['training']['answer']))
-        trains.word_def(bot, update, user_data)
-
 
 
 if __name__ == '__main__':
