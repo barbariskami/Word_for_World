@@ -67,6 +67,10 @@ def image_updater(bot, update, user_data):
             update.message.reply_text('Вы прислали мне картинку. Но зачем?🤷‍♂️')
     except Exception as ex:
         print('ошибка при добавлении', ex)
+        update.message.reply_text('Вы прислали мне картинку без подписи. Если вы создаете '
+                                  'модуль с телефона, выберите фотографию галочкой, затем '
+                                  'нажмите на нее и добавьте подпись внизу экрана. Можете '
+                                  'продолжать добавление слов')
 
 
 def message_updater(bot, update, user_data):
@@ -115,10 +119,10 @@ def finish_adding(bot, update, user_data):
                 module_id = db_work.ModulesDB.query.filter_by(name=user_data['new_module']['name']).first().module_id
                 for s in user_data['new_module']['sets']:
                     new_set = db_work.WordsSets(module_id=module_id,
-                                                word1=s['set'][0],
-                                                word2=s['set'][1],
-                                                word3='' if len(s['set']) < 3 else s['set'][2],
-                                                word4='' if len(s['set']) < 4 else s['set'][3],
+                                                word1=s['set'][0].strip(),
+                                                word2=s['set'][1].strip(),
+                                                word3='' if len(s['set']) < 3 else s['set'][2].strip(),
+                                                word4='' if len(s['set']) < 4 else s['set'][3].strip(),
                                                 image=s['image'])
                     db_work.db.session.add(new_set)
                 db_work.db.session.commit()
@@ -142,14 +146,14 @@ def info(bot, update, user_data):
                                          [InlineKeyboardButton(text='3/4 слова', callback_data='w34_info')],
                                          [InlineKeyboardButton(text='Слово - перевод - пример',
                                                                callback_data='w_t_e_info')],
-                                         [InlineKeyboardButton(text='Добавление модуля', callback_data='add_info')],
+                                         [InlineKeyboardButton(text='Работа с модулями', callback_data='add_info')],
                                          [InlineKeyboardButton(text='Тренировки', callback_data='train_info')],
                                          [InlineKeyboardButton(text='Главное меню', callback_data='back_to_main')]
                                          ])
-        if 'info_message' not in user_data.keys() or not user_data['info_message']:
-            user_data['info_message'] = bot.send_message(update.effective_user.id, text, reply_markup=keyboard)
+        if not user_data['last_message']:
+            user_data['last_message'] = bot.send_message(update.effective_user.id, text, reply_markup=keyboard)
         else:
-            bot.edit_message_text(text, update.effective_user.id, user_data['info_message'].message_id,
+            bot.edit_message_text(text, update.effective_user.id, user_data['last_message'].message_id,
                                   reply_markup=keyboard)
         return text
     except Exception as ex:
@@ -164,8 +168,12 @@ def back_to_menu(bot, update, user_data):
     keyboard = InlineKeyboardMarkup([[button1],
                                      [button2],
                                      [button3]])
-    bot.send_message(update.effective_user.id, text, reply_markup=keyboard)
-    user_data['info_message'] = False
+    if user_data['last_message']:
+        bot.edit_message_text(text, update.effective_user.id,
+                              user_data['last_message'].message_id,
+                              reply_markup=keyboard)
+    else:
+        user_data['last_message'] = bot.send_message(update.effective_user.id, text, reply_markup=keyboard)
 
 
 def start(bot, update, user_data):
@@ -173,12 +181,12 @@ def start(bot, update, user_data):
            'Я помогу вам выучить иностранные слова или термины и определения. ' \
            'Вот основные функции, которые вам понадобятся:\n'
     text += open('texts/start.txt', mode='r', encoding='utf8').read()
-    user_data = {}
+    user_data.clear()
 
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='❓Информация', callback_data='main_info')],
                                      [InlineKeyboardButton(text='📋Работа с модулями', callback_data='modules_work')],
                                      [InlineKeyboardButton(text='✏️Тренироваться', callback_data='train')]])
-    user_data['info_message'] = None
+    user_data['last_message'] = None
     try:
         update.message.reply_text(text, reply_markup=keyboard)
     except Exception as e:
@@ -193,27 +201,39 @@ def inline_q_handler(bot, update, user_data):
         info(bot, update, user_data)
 
     def modules_work(*args):
-        modules_work_menu(bot, update)
+        modules_work_menu(bot, update, user_data)
 
     def add_mod(*args):
+        user_data['last_message'] = None
         start_adding(bot, update, user_data)
 
     def edit_mod(*args):
-        pass
+        print('hi')
+        modules_work_tools.start_edit_mod(bot, update, user_data)
+
+    def choose_edit_set(*args):
+        modules_work_tools.choose_edit_set(bot, update, user_data, args[0])
+
+    def edit_set(*args):
+        modules_work_tools.edit_set(bot, update, user_data, args[0])
 
     def del_mod(*args):
+        user_data['last_message'] = None
         pass
 
     def share_mod(*args):
         modules_work_tools.share_mod(bot, update, user_data)
+        user_data['last_message'] = None
 
     def download_mod(*args):
         pass
 
     def train(*args):
+        user_data['last_message'] = None
         trains.choose_module(bot, update, user_data)
 
     def back_to_main(*args):
+        print(user_data)
         back_to_menu(bot, update, user_data)
 
     def w_t_info(*args):
@@ -234,6 +254,9 @@ def inline_q_handler(bot, update, user_data):
     def train_info(*args):
         infoDetails.train_info(bot, update, user_data)
 
+    def edit_info(*args):
+        infoDetails.edit_info(bot, update, user_data)
+
     def set_type(*args):
         user_data['new_module']['type'] = args[0]
         bot.delete_message(chat_id=update.callback_query.from_user.id,
@@ -246,8 +269,11 @@ def inline_q_handler(bot, update, user_data):
         bot.send_message(chat_id=update.callback_query.from_user.id,
                          text='Теперь вам нужно вводить пары (тройки/четверки) слов '
                               'или слово и определение, разделенные знаком "=" без пробелов например '
-                              '"hello=привет" (в зависимости от модуля). Чтобы закончить ввод, '
-                              'нажмите на кнопку ниже',
+                              '"hello=привет" (в зависимости от модуля). Если хотите добавить картинку к модулю, '
+                              'пришлите ее и текст в качестве подписи (Чтбы сделать это с телефона, СНАЧАЛА '
+                              'выберите картинку, после этого нажмите на нее и введите тест в качестве подписи '
+                              'внизу экрана). \nЧтобы закончить ввод, нажмите на кнопку "Сохранить модуль" '
+                              '(Если вы пользуетесь ботом с телефона, кнопка будет скрыта, нажмите на значок ⚃)',
                          reply_markup=markup)
         user_data['new_module']['adding_sets'] = True
         user_data['new_module']['sets'] = []
@@ -302,16 +328,24 @@ def inline_q_handler(bot, update, user_data):
                                       message_id=user_data['training']['choose_module_btns'].message_id,
                                       reply_markup=keyboard)
 
+    def edit_mod_page_forward(*args):
+        modules_work_tools.edit_mod_page_forward(bot, update, user_data, args[0], int(args[1]),
+                                                 None if args[0] == 'modules' else args[2])
+
+    def edit_mod_page_back(*args):
+        modules_work_tools.edit_mod_page_back(bot, update, user_data, args[0], int(args[1]),
+                                                 None if args[0] == 'modules' else args[2])
+
     def to_train(*args):
         trains.start(bot, update, user_data, *args)
 
     method, *payload = update.callback_query.data.split('|')
     try:
+        print(method)
         text = locals().get(method, lambda d: None)(*payload)
         bot.answer_callback_query(update.callback_query.id, text=text)
     except Exception as ex:
         print(666, ex, type(ex))
-        bot.sendMessage(125562178, text='hey')
 
 
 def start_adding(bot, update, user_data):
@@ -322,15 +356,21 @@ def start_adding(bot, update, user_data):
     user_data['new_module']['need_name'] = True
 
 
-def modules_work_menu(bot, update):
+def modules_work_menu(bot, update, user_data):
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Добавить модуль', callback_data='add_mod')],
                                      [InlineKeyboardButton(text='Редактировать модуль', callback_data='edit_mod')],
                                      [InlineKeyboardButton(text='Удалить модуль', callback_data='del_mod')],
                                      [InlineKeyboardButton(text='Поделиться модулем', callback_data='share_mod')],
-                                     [InlineKeyboardButton(text='Модуль из кода', callback_data='download_mod')]
+                                     [InlineKeyboardButton(text='Модуль из кода', callback_data='download_mod')],
+                                     [InlineKeyboardButton(text='Главное меню', callback_data='back_to_main')]
                                      ])
     text = 'Выберите дальнейшее действие'
-    bot.send_message(update.effective_user.id, text, reply_markup=keyboard)
+    if user_data['last_message']:
+        user_data['last_message'] = bot.edit_message_text(text, update.effective_user.id,
+                                                          user_data['last_message'].message_id,
+                                                          reply_markup=keyboard)
+    else:
+        user_data['last_message'] = bot.send_message(update.effective_user.id, text, reply_markup=keyboard)
 
 
 def ask_for_type(bot, update):
