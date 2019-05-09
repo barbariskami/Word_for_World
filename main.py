@@ -334,7 +334,7 @@ def inline_q_handler(bot, update, user_data):
 
     def edit_mod_page_back(*args):
         modules_work_tools.edit_mod_page_back(bot, update, user_data, args[0], int(args[1]),
-                                                 None if args[0] == 'modules' else args[2])
+                                              None if args[0] == 'modules' else args[2])
 
     def to_train(*args):
         trains.start(bot, update, user_data, *args)
