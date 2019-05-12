@@ -1,7 +1,7 @@
 import db_work
 import random
 from main import back_to_menu
-from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
 
 
 def choose_module(bot, update, user_data):
@@ -27,8 +27,15 @@ def choose_module(bot, update, user_data):
         keyboard.append([InlineKeyboardButton(text='Главное меню', callback_data='back_to_main')])
         keyboard = InlineKeyboardMarkup(keyboard)
         try:
-            user_data['training']['choose_module_btns'] = bot.send_message(update.effective_user.id, text,
-                                                                           reply_markup=keyboard)
+            if user_data['last_message']:
+                user_data['training']['choose_module_btns'] = bot.edit_message_text(text,
+                                                                                    update.effective_user.id,
+                                                                                    user_data['last_message'].message_id,
+                                                                                    reply_markup=keyboard)
+            else:
+                user_data['training']['choose_module_btns'] = bot.send_message(update.effective_user.id,
+                                                                               text,
+                                                                               reply_markup=keyboard)
         except Exception as ex:
             print(2121, ex)
     else:
@@ -53,7 +60,8 @@ def check_answer(bot, update, user_data, text):
 
 def start(bot, update, user_data, *args):
     bot.delete_message(chat_id=update.effective_user.id,
-                       message_id=user_data['training']['choose_module_btns'].message_id)
+                       message_id=user_data['last_message'].message_id)
+    user_data['last_message'] = None
     bot.send_message(chat_id=update.effective_user.id,
                      text='Тренировка ' + args[0])
     user_data['training']['is_training'] = True
@@ -100,7 +108,8 @@ def word_translate(bot, update, user_data, *args):
     else:
         user_data['training']['is_training'] = False
         bot.send_message(chat_id=update.effective_user.id,
-                         text='Тренировка окончена')
+                         text='Тренировка окончена',
+                         reply_markup=ReplyKeyboardRemove())
         back_to_menu(bot, update, user_data)
 
 
@@ -120,7 +129,8 @@ def translate_word(bot, update, user_data, *args):
     else:
         user_data['training']['is_training'] = False
         bot.send_message(chat_id=update.effective_user.id,
-                         text='Тренировка окончена')
+                         text='Тренировка окончена',
+                         reply_markup=ReplyKeyboardRemove())
         back_to_menu(bot, update, user_data)
 
 
@@ -130,7 +140,8 @@ def_word = translate_word
 def word_def(bot, update, user_data, *args):
     if user_data['training']['sets']:
         s = user_data['training']['sets'].pop()
-        reply_keyboard = [['/OK']]
+        reply_keyboard = [['/OK'],
+                          ['✖️ Завершить тренировку ✖️']]
         user_data['training']['type'] = word_def
         user_data['training']['answer'] = s.word2
         markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
@@ -145,7 +156,8 @@ def word_def(bot, update, user_data, *args):
     else:
         user_data['training']['is_training'] = False
         bot.send_message(chat_id=update.effective_user.id,
-                         text='Тренировка окончена')
+                         text='Тренировка окончена',
+                         reply_markup=ReplyKeyboardRemove())
         back_to_menu(bot, update, user_data)
 
 
@@ -170,14 +182,16 @@ def two_or_three(bot, update, user_data, *args):
     else:
         user_data['training']['is_training'] = False
         bot.send_message(chat_id=update.effective_user.id,
-                         text='Тренировка окончена')
+                         text='Тренировка окончена',
+                         reply_markup=ReplyKeyboardRemove())
         back_to_menu(bot, update, user_data)
 
 
 def revising(bot, update, user_data, *args):
     if user_data['training']['sets']:
         s = user_data['training']['sets'].pop()
-        reply_keyboard = [['/OK']]
+        reply_keyboard = [['/OK'],
+                          ['✖️ Завершить тренировку ✖️']]
         user_data['training']['type'] = revising
         user_data['training']['question'] = s
         markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
@@ -192,7 +206,8 @@ def revising(bot, update, user_data, *args):
     else:
         user_data['training']['is_training'] = False
         bot.send_message(chat_id=update.effective_user.id,
-                         text='Тренировка окончена')
+                         text='Тренировка окончена',
+                         reply_markup=ReplyKeyboardRemove())
         back_to_menu(bot, update, user_data)
 
 
