@@ -140,6 +140,9 @@ def image_updater(bot, update, user_data):
                     custom_path='users_data/images/code.jpg')
                 res = scan_barcode('users_data/images/code.jpg')
                 print(res)
+                module = db_work.ModulesDB.query.filter_by(module_id=int(res.split('=')[-1])).first()
+                modules_work_tools.copy_module(bot, update, module)
+                update.message.reply_text('Модуль успешно скоприрован! Можете продолжать работу')
                 if not res:
                     update.message.reply_text('Вы прислали мне картинку. Но зачем?🤷‍♂️')
             except Exception:
@@ -330,10 +333,6 @@ def back_to_menu(bot, update, user_data):
 
 
 def start(bot, update, user_data, args):
-    try:
-        print(args)
-    except:
-        traceback.print_exc()
     text = 'Привет! Я - бот Word for World. ' \
            'Я помогу вам выучить иностранные слова или термины и определения. ' \
            '\nВы можете добавлять Модули - порции слов, которые можно тренировать. ' \
@@ -351,6 +350,20 @@ def start(bot, update, user_data, args):
                                      [InlineKeyboardButton(text='✏️Тренироваться', callback_data='train')]])
     update.message.reply_text(text)
     user_data['last_message'] = update.message.reply_text('Меню', reply_markup=keyboard)
+    try:
+        if args:
+            module = db_work.ModulesDB.query.filter_by(module_id=int(args[0])).first()
+            if module:
+                modules_work_tools.copy_module(bot, update, module)
+                update.message.reply_text('Вы начали работу с помошью ссылки, которая нужна для копирования '
+                                          'модуля. Модуль сохранен в вашу папку.')
+            else:
+                update.message.reply_text('Вы начали работу с помошью ссылки, которая нужна для копирования '
+                                          'модуля. Но видимо модуль, который вы хотите сохранить, был удален. '
+                                          'Нам правда жаль.')
+    except:
+        traceback.print_exc()
+        update.message.reply_text('Ой, что-то пошло не так!')
 
 
 def inline_q_handler(bot, update, user_data):
