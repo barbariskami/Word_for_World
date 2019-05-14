@@ -1,48 +1,73 @@
 import db_work
 import random
+import traceback
 from main import back_to_menu
 from telegram import ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
+from serveces.SpeechKit import make_audio, update_iam, FOLDER_ID
 
 
-def choose_module(bot, update, user_data):
-    modules = sorted(db_work.ModulesDB.query.filter_by(user_id=update.effective_user.id).all(),
-                     key=lambda x: x.module_id,
-                     reverse=True)
+def choose_module(bot, update, user_data, inbuilt):
+    user_data['training'] = {}
+    if inbuilt:
+        modules = sorted(db_work.InbuiltModule.query,
+                         key=lambda x: x.module_id,
+                         reverse=True)
+        user_data['training']['inbuilt'] = True
+    else:
+        modules = sorted(db_work.ModulesDB.query.filter_by(user_id=update.effective_user.id).all(),
+                         key=lambda x: x.module_id,
+                         reverse=True)
+        user_data['training']['inbuilt'] = False
+    if user_data['last_message']:
+        bot.delete_message(update.effective_user.id, user_data['last_message'].message_id)
+        user_data['last_message'] = None
     if modules:
         text = 'Выберите модуль, который хотите тренировать (если созданных вами модулей больше ' \
                '10, они отображаются по 10'
-        user_data['training'] = {}
         user_data['training']['modules'] = modules
         keyboard = []
+        if not inbuilt:
+            keyboard.append([InlineKeyboardButton(text='Перейти ко встроенным модулям', callback_data='train|1')])
         if len(modules) <= 10:
             for i in modules:
-                button = [InlineKeyboardButton(text=i.name, callback_data='set_active_module|' + str(i.module_id))]
+                button = [
+                    InlineKeyboardButton(text=i.name,
+                                         callback_data='set_active_module|' + str(i.module_id))]
                 keyboard.append(button)
         else:
             for i in modules[:10]:
-                button = [InlineKeyboardButton(text=i.name, callback_data='set_active_module|' + str(i.module_id))]
+                button = [
+                    InlineKeyboardButton(text=i.name, callback_data='set_active_module|' + str(i.module_id))]
                 keyboard.append(button)
             button = [InlineKeyboardButton(text='->', callback_data='page_forward|10')]
             keyboard.append(button)
-        keyboard.append([InlineKeyboardButton(text='Главное меню', callback_data='back_to_main')])
+        if not inbuilt:
+            keyboard.append([InlineKeyboardButton(text='Главное меню', callback_data='back_to_main')])
+        else:
+            keyboard.append([InlineKeyboardButton(text='Назад к вашим модулям', callback_data='train')])
         keyboard = InlineKeyboardMarkup(keyboard)
         try:
             if user_data['last_message']:
                 user_data['training']['choose_module_btns'] = bot.edit_message_text(text,
                                                                                     update.effective_user.id,
-                                                                                    user_data['last_message'].message_id,
+                                                                                    user_data[
+                                                                                        'last_message'].message_id,
                                                                                     reply_markup=keyboard)
             else:
                 user_data['training']['choose_module_btns'] = bot.send_message(update.effective_user.id,
                                                                                text,
                                                                                reply_markup=keyboard)
+            user_data['last_message'] = user_data['training']['choose_module_btns']
         except Exception as ex:
-            print(2121, ex)
+            traceback.print_exc()
     else:
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Добавить модуль', callback_data='add_mod')]])
-        bot.send_message(update.effective_user.id,
-                         'Вы еще не создали ни одного модуля. Создайте и начните тренироваться!',
-                         reply_markup=keyboard)
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Добавить модуль', callback_data='add_mod')],
+                                         [InlineKeyboardButton(text='Перейти ко встроенным модулям',
+                                                               callback_data='train|1')]])
+        user_data['last_message'] = bot.send_message(update.effective_user.id,
+                                                     'Вы еще не создали ни одного модуля. Создайте и начните тренироваться или '
+                                                     'перейдите ко встроенным модулям',
+                                                     reply_markup=keyboard)
 
 
 def check_answer(bot, update, user_data, text):
@@ -66,7 +91,10 @@ def start(bot, update, user_data, *args):
                      text='Тренировка ' + args[0])
     user_data['training']['is_training'] = True
     module_id = user_data['training']['active_module'].module_id
-    sets = db_work.WordsSets.query.filter_by(module_id=module_id).all()
+    if user_data['training']['inbuilt']:
+        sets = db_work.InbuiltSet.query.filter_by(module_id=module_id).all()
+    else:
+        sets = db_work.WordsSets.query.filter_by(module_id=module_id).all()
     random.shuffle(sets)
     user_data['training']['sets'] = sets
 
@@ -105,6 +133,13 @@ def word_translate(bot, update, user_data, *args):
         else:
             bot.send_message(chat_id=update.effective_user.id,
                              text=s.word1)
+        if user_data['training']['active_module'].lang:
+            try:
+                make_audio(FOLDER_ID, update_iam(), s.word1)
+                audio = open('audio.ogg', 'rb')
+                bot.send_voice(chat_id=update.effective_user.id, voice=audio)
+            except:
+                traceback.print_exc()
     else:
         user_data['training']['is_training'] = False
         bot.send_message(chat_id=update.effective_user.id,
@@ -177,6 +212,14 @@ def two_or_three(bot, update, user_data, *args):
         else:
             bot.send_message(chat_id=update.effective_user.id,
                              text=text)
+        if user_data['training']['active_module'].lang:
+            try:
+                make_audio(FOLDER_ID, update_iam(), word)
+                audio = open('audio.ogg', 'rb')
+                bot.send_voice(chat_id=update.effective_user.id, voice=audio)
+            except:
+                traceback.print_exc()
+
         user_data['training']['answer'] = ' '.join(words)
         user_data['training']['type'] = two_or_three
     else:
@@ -203,6 +246,13 @@ def revising(bot, update, user_data, *args):
         else:
             bot.send_message(chat_id=update.effective_user.id,
                              text=s.word3, reply_markup=markup)
+        if user_data['training']['active_module'].lang:
+            try:
+                make_audio(FOLDER_ID, update_iam(), s.word3)
+                audio = open('audio.ogg', 'rb')
+                bot.send_voice(chat_id=update.effective_user.id, voice=audio)
+            except:
+                traceback.print_exc()
     else:
         user_data['training']['is_training'] = False
         bot.send_message(chat_id=update.effective_user.id,

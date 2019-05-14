@@ -28,7 +28,7 @@ def start_share_mod(bot, update, user_data):
     else:
         for i in modules[:10]:
             keyboard.append([InlineKeyboardButton(text=i.name, callback_data='share_module|' + str(i.module_id))])
-        keyboard.append([InlineKeyboardButton(text='->', callback_data='edit_mod_page_forward|modules_share|10')])
+        keyboard.append([InlineKeyboardButton(text='->', callback_data='edit_mod_page_forward|module_share|10')])
     keyboard.append([InlineKeyboardButton(text='Назад', callback_data='modules_work')])
     keyboard = InlineKeyboardMarkup(keyboard)
     text = 'Выберите модуль, которым хотите поделиться:'
@@ -43,7 +43,7 @@ def start_share_mod(bot, update, user_data):
 
 
 def share_module(bot, update, user_data, module_id):
-    url = pyqrcode.create('t.me/word_for_world_bot?start=12345')
+    url = pyqrcode.create('t.me/word_for_world_bot?start=' + str(module_id))
     url.png('code.png', scale=7)
     if user_data['last_message']:
         bot.delete_message(update.effective_user.id, user_data['last_message'].message_id)
@@ -358,6 +358,12 @@ def delete_module(bot, update, user_data, module_id, mod):
         module = db_work.ModulesDB.query.filter_by(module_id=module_id).first()
         db_work.db.session.delete(module)
         db_work.db.session.commit()
+        sets = db_work.WordsSets.query.filter_by(module_id=module_id).all()
+        for s in sets:
+            is_image_used = db_work.WordsSets.query.filter_by(image=s.image).all()
+            if len(is_image_used) == 1:
+                os.remove('user_data/images/' + s.image)
+            db_work.db.session.delete(set)
         bot.edit_message_text('Модуль удален, моете продолжать работу',
                               update.effective_user.id, user_data['last_message'].message_id)
         user_data['last_message'] = None
@@ -375,3 +381,23 @@ def delete_module(bot, update, user_data, module_id, mod):
             user_data['last_message'] = bot.send_message(update.effective_user.id,
                                                          'Вы действительно хотите удалить этот модуль?',
                                                          reply_markup=keyboard)
+
+
+def copy_module(bot, update, module):
+    new_module = db_work.ModulesDB(user_id=update.effective_user.id,
+                                   name=module.name,
+                                   type=module.type)
+    db_work.db.session.add(new_module)
+    db_work.db.session.commit()
+    module_id = db_work.ModulesDB.query.filter_by(user_id=update.effective_user.id,
+                                                  name=module.name).first().module_id
+    sets = db_work.WordsSets.query.filter_by(module_id=module_id).all()
+    for s in sets:
+        new_set = db_work.WordsSets(module_id=module_id,
+                                    word1=s.word1,
+                                    word2=s.word2,
+                                    word3=s.word3,
+                                    word4=s.word4,
+                                    image=s.image)
+        db_work.db.session.add(new_set)
+    db_work.db.session.commit()

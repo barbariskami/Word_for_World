@@ -1,13 +1,12 @@
 import traceback
 import os
-from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, CallbackQueryHandler, ConversationHandler
+from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, CallbackQueryHandler
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 import infoDetails
 import db_work
 import trains
 import modules_work_tools
-from barcode_scanner_image import scan_barcode
-import pyqrcode
+from serveces.barcode_scanner_image import scan_barcode
 
 modules_type_codes = {'w_t': 'Слово - перевод', 'w_def': 'Слово - определение', '3_w': '3 слова', '4_w': '4 слова',
                       'w_t_e': 'Слово - перевод - определение', }
@@ -42,118 +41,6 @@ def main():
     updater.idle()
 
 
-def image_updater(bot, update, user_data):
-    try:
-        data = update.message.photo
-        if 'new_module' in user_data.keys() and user_data['new_module']['adding_sets']:
-            new_set = tuple(update.message.caption.split('='))
-            if (len(new_set) == 2 and (
-                    user_data['new_module']['type'] == 'w_t' or user_data['new_module']['type'] == 'w_def')) or (
-                    len(new_set) == 3 and (
-                    user_data['new_module']['type'] == '3_w' or
-                    user_data['new_module']['type'] == 'w_t_e')) or (
-                    len(new_set) == 4 and user_data['new_module']['type'] == '4_w'):
-                im_name = str(update.message.from_user.id) + str(update.message.message_id) + '.jpg'
-                user_data['new_module']['sets'].append({'set': new_set, 'image': im_name})
-                try:
-                    ph = data[1].get_file().download(
-                        custom_path='users_data/images/' + im_name)
-                except Exception as ex:
-                    print(ex)
-                    update.message.reply_text('Какие-то проблемы с сохранением картинки. Эта пара '
-                                              'не сохранена. Попробуйте вновь, либо продолжайте ввод')
-                    del user_data['new_module']['sets'][-1]
-            else:
-                update.message.reply_text('Вы ввели что-то не то. Пропробуйте еще раз')
-
-        elif 'edit' in user_data.keys() and user_data['edit']['adding_pair']:
-            user_data['last_message'] = None
-            mod_type = db_work.ModulesDB.query.filter_by(module_id=user_data['edit']['adding_pair']).first().type
-            new_set = tuple(update.message.caption.split('='))
-            if (len(new_set) == 2 and (mod_type == 'w_t' or mod_type == 'w_def')) or (
-                    len(new_set) == 3 and (mod_type == '3_w' or mod_type == 'w_t_e')) or (
-                    len(new_set) == 4 and mod_type == '4_w'):
-                im_name = str(update.message.from_user.id) + str(update.message.message_id) + '.jpg'
-                try:
-                    ph = data[1].get_file().download(
-                        custom_path='users_data/images/' + im_name)
-                except:
-                    traceback.print_exc()
-                    keyboard = InlineKeyboardMarkup(
-                        [[InlineKeyboardButton(text='Вернуться', callback_data='cancel_editing_module')]])
-                    update.message.reply_text('Какие-то проблемы с сохранением картинки. Эта пара '
-                                              'не сохранена. Попробуйте вновь, либо вернитесь к '
-                                              'выбору пары для изменения',
-                                              reply_markup=keyboard)
-                    return
-
-                set_obj = db_work.WordsSets(module_id=user_data['edit']['adding_pair'],
-                                            word1=new_set[0].strip(),
-                                            word2=new_set[1].strip(),
-                                            word3='' if len(new_set) < 3 else new_set[2].strip(),
-                                            word4='' if len(new_set) < 4 else new_set[3].strip(),
-                                            image=im_name)
-                db_work.db.session.add(set_obj)
-                db_work.db.session.commit()
-                update.message.reply_text('Отлично! Пара сохранена. Можете продолжать редактирование.')
-                modules_work_tools.choose_edit_set(bot, update, user_data, user_data['edit']['adding_pair'])
-
-            else:
-                update.message.reply_text('Вы ввели что-то не то')
-        elif 'edit' in user_data.keys() and user_data['edit']['edit_mod']['mod'] == 'image':
-            editing_set = db_work.WordsSets.query.filter_by(set_id=user_data['edit']['edit_mod']['set_id']).first()
-            im_name = str(update.message.from_user.id) + str(update.message.message_id) + '.jpg'
-            try:
-                ph = data[1].get_file().download(
-                    custom_path='users_data/images/' + im_name)
-            except Exception:
-                traceback.print_exc()
-                keyboard = InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(text='Вернуться', callback_data='cancel_editing_module')]])
-                update.message.reply_text('Какие-то проблемы с сохранением картинки. Эта пара '
-                                          'не сохранена. Попробуйте вновь, либо вернитесь к '
-                                          'выбору пары для изменения',
-                                          reply_markup=keyboard)
-                return
-            if editing_set.image:
-                os.remove('users_data/images/' + editing_set.image)
-            db_work.db.session.delete(editing_set)
-            new_set = db_work.WordsSets(module_id=editing_set.module_id,
-                                        word1=editing_set.word1,
-                                        word2=editing_set.word2,
-                                        word3=editing_set.word3,
-                                        word4=editing_set.word4,
-                                        image=im_name)
-            db_work.db.session.add(new_set)
-            db_work.db.session.commit()
-            update.message.reply_text('Изменение сохранено!')
-            mod_id = db_work.ModulesDB.query.filter_by(module_id=editing_set.module_id).first().module_id
-            user_data['edit']['edit_mod']['mod'] = None
-            user_data['edit']['edit_mod']['set_id'] = None
-
-            modules_work_tools.choose_edit_set(bot, update, user_data, mod_id)
-
-        else:
-            try:
-                data = update.message.photo
-                ph = data[1].get_file().download(
-                    custom_path='users_data/images/code.jpg')
-                res = scan_barcode('users_data/images/code.jpg')
-                print(res)
-                module = db_work.ModulesDB.query.filter_by(module_id=int(res.split('=')[-1])).first()
-                modules_work_tools.copy_module(bot, update, module)
-                update.message.reply_text('Модуль успешно скоприрован! Можете продолжать работу')
-                if not res:
-                    update.message.reply_text('Вы прислали мне картинку. Но зачем?🤷‍♂️')
-            except Exception:
-                traceback.print_exc()
-
-    except Exception as ex:
-        traceback.print_exc()
-        update.message.reply_text('Вы прислали мне картинку без подписи. Если вы создаете '
-                                  'модуль с телефона, выберите фотографию галочкой, затем '
-                                  'нажмите на нее и добавьте подпись внизу экрана. Можете '
-                                  'продолжать добавление слов')
 def image_updater(bot, update, user_data):
     try:
         data = update.message.photo
@@ -314,7 +201,11 @@ def message_updater(bot, update, user_data):
         # Проверка ответа во время тренировки
         elif 'training' in user_data.keys() and 'is_training' in user_data['training'].keys() and \
                 user_data['training']['is_training']:
-            trains.check_answer(bot, update, user_data, text)
+            try:
+                trains.check_answer(bot, update, user_data, text)
+            except KeyError:
+                update.message.reply_text('Не нужно ничего присылать. Если вы уже повторили предложение,'
+                                          ' нажмите кнопку OK')
 
         # Добавление пары в уже существующий модуль
         elif 'edit' in user_data.keys() and user_data['edit']['adding_pair']:
@@ -551,6 +442,7 @@ def inline_q_handler(bot, update, user_data):
                 bot.delete_message(update.effective_user.id, user_data['last_message'].message_id)
             bot.delete_message(update.effective_user.id, user_data['cancel_message'].message_id)
             bot.send_message(update.effective_user.id, 'Тренировка окончена')
+            user_data['training']['is_training'] = False
             user_data['last_message'] = None
             back_to_menu(bot, update, user_data)
         else:
@@ -602,7 +494,6 @@ def inline_q_handler(bot, update, user_data):
         except:
             traceback.print_exc()
 
-
     def set_lang(*args):
         user_data['new_module']['language'] = args[0]
         start_add_sets(bot, update, user_data)
@@ -611,7 +502,8 @@ def inline_q_handler(bot, update, user_data):
         bot.delete_message(chat_id=update.effective_user.id,
                            message_id=user_data['training']['choose_module_btns'].message_id)
         if user_data['training']['inbuilt']:
-            user_data['training']['active_module'] = db_work.InbuiltModule.query.filter_by(module_id=int(args[0])).first()
+            user_data['training']['active_module'] = db_work.InbuiltModule.query.filter_by(
+                module_id=int(args[0])).first()
         else:
             user_data['training']['active_module'] = db_work.ModulesDB.query.filter_by(module_id=int(args[0])).first()
         keyboard = ReplyKeyboardMarkup([['✖️ Завершить тренировку ✖️']], one_time_keyboard=True)

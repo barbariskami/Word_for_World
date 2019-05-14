@@ -3,12 +3,6 @@ from pyzbar import pyzbar
 
 
 def scan_barcode(url):
-    # download the image, convert it to a NumPy array, and then read
-    # it into OpenCV format
-    # resp = urllib.request.urlopen(url)
-    # file = np.asarray(bytearray(resp.read()), dtype="uint8")
-    # image = cv2.imdecode(file, cv2.IMREAD_COLOR)
-
     image = cv2.imread(url)
 
     barcodes = pyzbar.decode(image)
