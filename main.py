@@ -1,16 +1,19 @@
 import traceback
 import os
-from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, CallbackQueryHandler
+from telegram.ext import Updater, MessageHandler, Filters, CommandHandler, CallbackQueryHandler, ConversationHandler
 from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 import infoDetails
 import db_work
 import trains
 import modules_work_tools
 from serveces.barcode_scanner_image import scan_barcode
+from serveces.translation import translate
 
+# Словарь сопостовляющий код типа модуля и его название
 modules_type_codes = {'w_t': 'Слово - перевод', 'w_def': 'Слово - определение', '3_w': '3 слова', '4_w': '4 слова',
-                      'w_t_e': 'Слово - перевод - определение', }
+                      'w_t_e': 'Слово - перевод - пример', }
 
+# Словарь в котором коду модуля соответствуют списки тренировок, доступных для этого модуля
 modules_training = {'w_t': ['Слово - Перевод', 'Перевод - Слово'],
                     'w_def': ['Определение - Термин', 'Термин - Определение'],
                     '3_w': ['Одно слово - Остальные два'], '4_w': ['Одно слово - Остальные три'],
@@ -21,8 +24,9 @@ def find_out(bot, update, user_data):
     print(user_data)
 
 
+# Главная функция
 def main():
-    token = '802480610:AAGWxK1UkY9p-WW99yr6Mu4mBypaGD-3rFM'
+    token = '683346269:AAE66lBZvg--IDGUbUh-mPK2SWRrAv_Tvhw'
     updater = Updater(token)
     dp = updater.dispatcher
 
@@ -32,9 +36,27 @@ def main():
     dp.add_handler(CommandHandler('menu', back_to_menu))
     dp.add_handler(CommandHandler('add_module', start_adding, pass_user_data=True))
     dp.add_handler(CommandHandler('OK', trains.word_def_ok, pass_user_data=True))
-    dp.add_handler(CallbackQueryHandler(inline_q_handler, pass_user_data=True))
+
+    check_finishing_adding = MessageHandler(Filters.text, ask_about_finishing_adding, pass_user_data=True)
+    # Хэндлер для диалога на добавление модуля:
+    add_module_conversation = ConversationHandler(
+        entry_points=[CallbackQueryHandler(start_adding, pattern='add_mod', pass_user_data=True)],
+        states={'ask_for_type': [MessageHandler(Filters.text, ask_for_type, pass_user_data=True)],
+                'ask_for_language': [CallbackQueryHandler(ask_for_language, pass_user_data=True)],
+                'ask_about_translation': [CallbackQueryHandler(ask_about_translation, pass_user_data=True)],
+                'ask_first_word': [CallbackQueryHandler(ask_first_word, pass_user_data=True)],
+                'ask_second_word': [MessageHandler(Filters.text, ask_second_word, pass_user_data=True)],
+                'ask_translation': [MessageHandler(Filters.text, ask_translation, pass_user_data=True),
+                                    CallbackQueryHandler(ask_translation, pass_user_data=True)],
+                'receive_answer_about_finishing_adding':
+                    [CallbackQueryHandler(receive_answer_about_finishing_adding, pass_user_data=True)]
+                },
+        fallbacks=[CommandHandler('start', start, pass_user_data=True, pass_args=True)])
+    dp.add_handler(add_module_conversation)
+
     dp.add_handler(MessageHandler(Filters.text, message_updater, pass_user_data=True))
     dp.add_handler(MessageHandler(Filters.photo, image_updater, pass_user_data=True))
+    dp.add_handler(CallbackQueryHandler(inline_q_handler, pass_user_data=True))
 
     updater.start_polling()
 
@@ -156,6 +178,7 @@ def image_updater(bot, update, user_data):
 
 
 def message_updater(bot, update, user_data):
+    print('обрабатывается обычным разработчиком')
     try:
         text = update.message.text
 
@@ -177,26 +200,25 @@ def message_updater(bot, update, user_data):
                                                                    callback_data='continue_training_mod|')]])
             user_data['cancel_message'] = bot.send_message(update.effective_user.id, message, reply_markup=keyboard)
 
-
-        elif 'new_module' in user_data.keys() and user_data['new_module']['need_name']:
-            if not db_work.ModulesDB.query.filter_by(name=text).all():
-                user_data['new_module']['name'] = text
-                user_data['new_module']['need_name'] = False
-                ask_for_type(bot, update, user_data)
-            else:
-                update.message.reply_text('Такой модуль уже существует. Введите другое имя')
+        # elif 'new_module' in user_data.keys() and user_data['new_module']['need_name']:
+        #     if not db_work.ModulesDB.query.filter_by(name=text).all():
+        #         user_data['new_module']['name'] = text
+        #         user_data['new_module']['need_name'] = False
+        #         ask_for_type(bot, update, user_data)
+        #     else:
+        #         update.message.reply_text('Такой модуль уже существует. Введите другое имя')
 
         # Добавление нового модуля
-        elif 'new_module' in user_data.keys() and user_data['new_module']['adding_sets']:
-            new_set = tuple(update.message.text.split('='))
-            if (len(new_set) == 2 and (
-                    user_data['new_module']['type'] == 'w_t' or user_data['new_module']['type'] == 'w_def')) or (
-                    len(new_set) == 3 and (
-                    user_data['new_module']['type'] == '3_w' or user_data['new_module']['type'] == 'w_t_e')) or (
-                    len(new_set) == 4 and user_data['new_module']['type'] == '4_w'):
-                user_data['new_module']['sets'].append({'set': new_set, 'image': ''})
-            else:
-                update.message.reply_text('Вы ввели что-то не то')
+        # elif 'new_module' in user_data.keys() and user_data['new_module']['adding_sets']:
+        #     new_set = tuple(update.message.text.split('='))
+        #     if (len(new_set) == 2 and (
+        #             user_data['new_module']['type'] == 'w_t' or user_data['new_module']['type'] == 'w_def')) or (
+        #             len(new_set) == 3 and (
+        #             user_data['new_module']['type'] == '3_w' or user_data['new_module']['type'] == 'w_t_e')) or (
+        #             len(new_set) == 4 and user_data[' new_module']['type'] == '4_w'):
+        #         user_data['new_module']['sets'].append({'set': new_set, 'image': ''})
+        #     else:
+        #         update.message.reply_text('Вы ввели что-то не то')
 
         # Проверка ответа во время тренировки
         elif 'training' in user_data.keys() and 'is_training' in user_data['training'].keys() and \
@@ -297,6 +319,7 @@ def finish_adding(bot, update, user_data):
         traceback.print_exc()
 
 
+# Отображает основную информацию и кнопки для перехода на следующие разделы
 def info(bot, update, user_data):
     try:
         text = open('texts/info.txt', mode='r', encoding='utf8').read()
@@ -319,22 +342,22 @@ def info(bot, update, user_data):
         traceback.print_exc()
 
 
+# Еще одна версия открытия главного меню (в этом плане аналогична старту)
 def back_to_menu(bot, update, user_data):
     text = 'Выбери нужную опцию'
-    button1 = InlineKeyboardButton(text='❓Информация', callback_data='main_info')
-    button2 = InlineKeyboardButton(text='📋Работа с модулями', callback_data='modules_work')
-    button3 = InlineKeyboardButton(text='✏️Тренироваться️', callback_data='train')
-    keyboard = InlineKeyboardMarkup([[button1],
-                                     [button2],
-                                     [button3]])
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='❓Информация', callback_data='main_info')],
+                                     [InlineKeyboardButton(text='📋Работа с модулями', callback_data='modules_work')],
+                                     [InlineKeyboardButton(text='✏️Тренироваться️', callback_data='train')]])
     if user_data['last_message']:
         bot.edit_message_text(text, update.effective_user.id,
                               user_data['last_message'].message_id,
                               reply_markup=keyboard)
     else:
         user_data['last_message'] = bot.send_message(update.effective_user.id, text, reply_markup=keyboard)
+    return ConversationHandler.END
 
 
+# Запуск (перезапуск) бота
 def start(bot, update, user_data, args):
     text = 'Привет! Я - бот Word for World. ' \
            'Я помогу вам выучить иностранные слова или термины и определения. ' \
@@ -353,8 +376,11 @@ def start(bot, update, user_data, args):
                                      [InlineKeyboardButton(text='✏️Тренироваться', callback_data='train')]])
     update.message.reply_text(text, reply_markup=ReplyKeyboardRemove())
     user_data['last_message'] = update.message.reply_text('Меню', reply_markup=keyboard)
+    # Проверка ссылки на наличие аргументов:
     try:
+        # Если бот запускался ссылкой, имеющей аргументы, значит это была ссылка для копирования модуля
         if args:
+            # Пытаемся достать этот модуль и скопировать его пользователю
             module = db_work.ModulesDB.query.filter_by(module_id=int(args[0])).first()
             if module:
                 modules_work_tools.copy_module(bot, update, module)
@@ -362,25 +388,26 @@ def start(bot, update, user_data, args):
                                           'модуля. Модуль сохранен в вашу папку.')
             else:
                 update.message.reply_text('Вы начали работу с помошью ссылки, которая нужна для копирования '
-                                          'модуля. Но видимо модуль, который вы хотите сохранить, был удален. '
-                                          'Нам правда жаль.')
+                                          'модуля. Но видимо модуль, который вы хотите сохранить, был удален '
+                                          'или ссылка была неправильной. Нам правда жаль.')
     except:
         traceback.print_exc()
-        update.message.reply_text('Ой, что-то пошло не так!')
+        update.message.reply_text('Ой, наверное вам должен был добавится модуль, но что-то пошло не так!')
+    # Завершает диалог, если он был начат ранее для полного обнуления бота
+    return ConversationHandler.END
 
 
 def inline_q_handler(bot, update, user_data):
-    def nothing():
-        pass
-
+    # Запускает вызов основного меню информации
     def main_info():
         info(bot, update, user_data)
 
+    # Запускает открытие меню выбора действия с модулем
     def modules_work(*args):
         modules_work_menu(bot, update, user_data)
 
-    def add_mod(*args):
-        start_adding(bot, update, user_data)
+    # def add_mod(*args):
+    #     start_adding(bot, update, user_data)
 
     def continue_add_mod(*args):
         if args[0]:
@@ -479,24 +506,24 @@ def inline_q_handler(bot, update, user_data):
         user_data['edit']['adding_pair'] = False
         modules_work_tools.choose_edit_set(bot, update, user_data, user_data['edit']['adding_pair'])
 
-    def set_type(*args):
-        try:
-            user_data['new_module']['type'] = args[0]
-            user_data['last_message'] = None
-            bot.delete_message(chat_id=update.callback_query.from_user.id,
-                               message_id=update.callback_query.message.message_id)
-            bot.send_message(chat_id=update.callback_query.from_user.id,
-                             text='Вы выбрали тип {}'.format(modules_type_codes[args[0]].lower()))
-            if user_data['new_module']['type'] != 'w_def':
-                ask_for_language(bot, update, user_data)
-            else:
-                start_add_sets(bot, update, user_data)
-        except:
-            traceback.print_exc()
+    # def set_type(*args):
+    #     try:
+    #         user_data['new_module']['type'] = args[0]
+    #         user_data['last_message'] = None
+    #         bot.delete_message(chat_id=update.callback_query.from_user.id,
+    #                            message_id=update.callback_query.message.message_id)
+    #         bot.send_message(chat_id=update.callback_query.from_user.id,
+    #                          text='Вы выбрали тип {}'.format(modules_type_codes[args[0]].lower()))
+    #         if user_data['new_module']['type'] != 'w_def':
+    #             ask_for_language(bot, update, user_data)
+    #         else:
+    #             start_add_sets(bot, update, user_data)
+    #     except:
+    #         traceback.print_exc()
 
-    def set_lang(*args):
-        user_data['new_module']['language'] = args[0]
-        start_add_sets(bot, update, user_data)
+    # def set_lang(*args):
+    #     user_data['new_module']['language'] = args[0]
+    #     start_add_sets(bot, update, user_data)
 
     def set_active_module(*args):
         bot.delete_message(chat_id=update.effective_user.id,
@@ -577,7 +604,11 @@ def inline_q_handler(bot, update, user_data):
 
     method, *payload = update.callback_query.data.split('|')
     try:
-        text = locals().get(method, lambda d: None)(*payload)
+        f = locals().get(method, None)
+        if f:
+            text = f(*payload)
+        else:
+            text = ''
         bot.answer_callback_query(update.callback_query.id, text=text)
     except Exception:
         traceback.print_exc()
@@ -592,10 +623,13 @@ def start_adding(bot, update, user_data):
     user_data['last_message'] = None
     user_data['new_module'] = {}
     user_data['new_module']['process'] = True
-    user_data['new_module']['need_name'] = True
+    # user_data['new_module']['need_name'] = True
+    return 'ask_for_type'
 
 
+# Меню выбора действия с модулем
 def modules_work_menu(bot, update, user_data):
+    # Просим выбрать следующие действие
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Добавить модуль', callback_data='add_mod')],
                                      [InlineKeyboardButton(text='Редактировать модуль', callback_data='edit_mod')],
                                      [InlineKeyboardButton(text='Удалить модуль', callback_data='del_mod')],
@@ -612,6 +646,17 @@ def modules_work_menu(bot, update, user_data):
 
 
 def ask_for_type(bot, update, user_data):
+    text = update.message.text
+    # Если такого модуля еще нет, сохраняем, иначе переспрашиваем
+    if not db_work.ModulesDB.query.filter_by(name=text).all():
+        user_data['new_module']['name'] = text
+        # user_data['new_module']['need_name'] = False
+    else:
+        update.message.reply_text('Такой модуль уже существует. Введите другое имя')
+        user_data['new_module']['step'] = 'ask_for_type'
+        return 'ask_for_type'
+
+    # Спрашиваем тип модуля
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(text='Слово - перевод', callback_data='set_type|w_t')],
                                      [InlineKeyboardButton(text='Слово - определение', callback_data='set_type|w_def')],
                                      [InlineKeyboardButton(text='3 слова', callback_data='set_type|3_w')],
@@ -619,15 +664,34 @@ def ask_for_type(bot, update, user_data):
                                      [InlineKeyboardButton(text='Слово - перевод - пример',
                                                            callback_data='set_type|w_t_e')]
                                      ])
-
     try:
         user_data['last_message'] = bot.send_message(update.effective_user.id, 'Теперь выбери тип модуля',
                                                      reply_markup=keyboard)
+        user_data['new_module']['step'] = 'ask_for_language'
+        return 'ask_for_language'
     except Exception as ex:
         traceback.print_exc()
 
 
 def ask_for_language(bot, update, user_data):
+    # Сохраняем выбранный тип
+    user_data['new_module']['type'] = update.callback_query.data.split('|')[1]
+    # Удаляем старое сообщение с клавиатурой
+    user_data['last_message'] = None
+    bot.delete_message(chat_id=update.callback_query.from_user.id,
+                       message_id=update.callback_query.message.message_id)
+    # Пишем пользователю, какой тип он выбрал
+    bot.send_message(chat_id=update.callback_query.from_user.id,
+                     text='Вы выбрали тип {}'.format(
+                         modules_type_codes[update.callback_query.data.split('|')[1].lower()]))
+    # Если тип - слово-определение, то язык и переводчик не нужны
+    # Сразу переходим к вводу первой пары
+    if user_data['new_module']['type'] == 'w_def':
+        user_data['new_module']['language'] = ''
+        user_data['new_module']['translation'] = False
+        user_data['new_module']['step'] = get_term(bot, update, user_data)
+        return user_data['new_module']['step']
+    # Иначе запрашиваем у пользователя язык модуля
     keyboard = [[InlineKeyboardButton(text='Английский', callback_data='set_lang|en-US')],
                 [InlineKeyboardButton(text='Турецкий', callback_data='set_lang|tr-TR')],
                 [InlineKeyboardButton(text='Русский', callback_data='set_lang|ru-RU')],
@@ -638,29 +702,272 @@ def ask_for_language(bot, update, user_data):
                                                  'Выберите язык ПЕРВОГО слова (слов) в модуле. Это '
                                                  'необходимо для произношения слов.',
                                                  reply_markup=keyboard)
+    user_data['new_module']['step'] = 'ask_about_translation'
+    return 'ask_about_translation'
 
 
-def start_add_sets(bot, update, user_data):
+def ask_about_translation(bot, update, user_data):
+    user_data['new_module']['language'] = update.callback_query.data.split('|')[1]
     if user_data['last_message']:
+        # Удаляем старое сообщение с клавиатурой
         bot.delete_message(chat_id=update.effective_user.id,
                            message_id=user_data['last_message'].message_id)
         user_data['last_message'] = None
-    reply_keyboard = [['📥 Сохранить модуль'],
-                      ['🏠 Главное меню 🏠']]
-    markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
-    bot.send_message(chat_id=update.callback_query.from_user.id,
-                     text='Теперь вам нужно вводить пары (тройки/четверки) слов '
-                          'или слово и определение, разделенные знаком "=" без пробелов например '
-                          '"hello=привет" (в зависимости от модуля) каждое ОТДЕЛЬНЫМ СООБЩЕНИЕМ. '
-                          'Если хотите добавить картинку к модулю, '
-                          'пришлите ее и текст в качестве подписи (Чтбы сделать это с телефона, СНАЧАЛА '
-                          'выберите картинку, после этого нажмите на нее и введите тест в качестве подписи '
-                          'внизу экрана). \nЧтобы закончить ввод, нажмите на кнопку "Сохранить модуль" '
-                          '(Если вы пользуетесь ботом с телефона, кнопка будет скрыта, нажмите на значок '
-                          '⚃ рядом со значком микрофона)',
-                     reply_markup=markup)
-    user_data['new_module']['adding_sets'] = True
-    user_data['new_module']['sets'] = []
+
+    # Спрашиваем пользователя, хотел бы он получать подсказки от переводчика
+    keyboard = [[InlineKeyboardButton(text='Да', callback_data='set_translation|1')],
+                [InlineKeyboardButton(text='Нет', callback_data='set_translation|')],
+                ]
+    keyboard = InlineKeyboardMarkup(keyboard)
+    lang = update.callback_query.data.split('|')[1]
+    # Уточняем пользователю возможности выбранного языка
+    if lang == 'en-US' or lang == 'tr-TR' or lang == 'ru-RU':
+        answer = 'Для этого языка доступно и аудио произношение и перевод. '
+    else:
+        answer = 'К сожалению для этого языкане доступно произношение, но доступен переводчик. '
+    text = '{}Хотите ли вы, чтобы я предложил вам вариант перевода слова, которое вы вводите?'.format(answer)
+    if user_data['new_module']['type'] == 'w_3' or user_data['new_module']['type'] == 'w_4':
+        text += '\n!!!Если вы захотите воспользоваться подсказкой, вы должны будете обязательно ввести на одно слово ' \
+                'меньше, а потом отдельно добавить ему перевод после подсказки'
+    user_data['last_message'] = bot.send_message(update.effective_user.id,
+                                                 text,
+                                                 reply_markup=keyboard)
+    user_data['new_module']['step'] = 'ask_first_word'
+    return 'ask_first_word'
+
+
+def ask_first_word(bot, update, user_data):
+    print('Спрашиваю первое слово')
+    try:
+        if 'translation' not in user_data['new_module'].keys():
+            # Если ответ не был введен раньше, берем его из нажатой кнопки
+            user_data['new_module']['translation'] = bool(update.callback_query.data.split('|')[1])
+    except:
+        traceback.print_exc()
+
+    if 'second' in user_data['new_module'].keys() and user_data['new_module']['second']:
+        user_data['new_module']['sets'].append({'first': user_data['new_module']['first'],
+                                                'second': user_data['new_module']['second']})
+        user_data['new_module']['second'] = []
+        user_data['new_module']['first'] = None
+        print(user_data['new_module']['sets'])
+
+    try:
+        # Если слова еще ни разу не вводились, нашинаем ввод и объясняем пользователю, что он должен делать
+        if 'sets' not in user_data['new_module'].keys() or not user_data['new_module']['sets']:
+            user_data['new_module']['sets'] = []
+            # Запрос пользователю меняется в зависимости от типа модуля
+            if user_data['new_module']['type'] == 'w_t' or user_data['new_module']['type'] == 'w_t_e':
+                text = 'Теперь введите первое слово на ИНОСТРАННОМ языке'
+            elif user_data['new_module']['type'] == 'w_3' or user_data['new_module']['type'] == 'w_4':
+                # Колличество слов изменяется в зависимости от того, есть подсказка или нет
+                words = int(user_data['new_module']['type'][-1]) - int(user_data['new_module']['translation'])
+                exc = ''
+                if user_data['new_module']['type'] == 'w_3' and user_data['new_module']['translation']:
+                    exc = 'man\nmen'
+                elif user_data['new_module']['type'] == 'w_3' and not user_data['new_module']['translation']:
+                    exc = 'man\nmen\nмужчина'
+                elif user_data['new_module']['type'] == 'w_4' and user_data['new_module']['translation']:
+                    exc = 'be\nwas\nbeen'
+                elif user_data['new_module']['type'] == 'w_4' and not user_data['new_module']['translation']:
+                    exc = 'be\nwas\nbeen\nбыть'
+
+                # Пояснение пользователю, что именно нужно вводить
+                if user_data['new_module']['translation']:
+                    explanation = 'Теперь введите {} формы слова на иностранном языке,'.format(str(words))
+                else:
+                    explanation = 'Теперь введите {} формы слова на иностранном языке и перевод,'.format(str(words - 1))
+                text = '{} разделяя их переносом строки (с компьютера - Shift + Enter)' \
+                       '\nНапример:\n{}'.format(explanation, exc)
+
+            bot.send_message(update.effective_user.id, text)
+            keyboard = ReplyKeyboardMarkup([['🏠 Главное меню 🏠'], ['📥 Сохранить модуль']], one_time_keyboard=True)
+            bot.send_message(update.effective_user.id,
+                             'Как только закончите ввод слов, нажмите на кнопку "📥 Сохранить модуль"',
+                             reply_markup=keyboard)
+            if user_data['new_module']['translation']:
+                user_data['new_module']['step'] = 'ask_second_word'
+                return 'ask_second_word'
+            else:
+                user_data['new_module']['step'] = 'get_pair'
+                return 'get_pair'
+
+        else:
+            print('я спрашиваю новое первое слово!!!')
+            if user_data['new_module']['type'] == 'w_t' or user_data['new_module']['type'] == 'w_t_e':
+                text = 'Введите слово на ИНОСТРАННОМ языке'
+            elif user_data['new_module']['type'] == 'w_3' or user_data['new_module']['type'] == 'w_4':
+                # Колличество слов изменяется в зависимости от того, есть подсказка или нет
+                words = int(user_data['new_module']['type'][-1]) - int(user_data['new_module']['translation'])
+                exc = ''
+                if user_data['new_module']['type'] == 'w_3' and user_data['new_module']['translation']:
+                    exc = 'man\nmen'
+                elif user_data['new_module']['type'] == 'w_3' and not user_data['new_module']['translation']:
+                    exc = 'man\nmen\nмужчина'
+                elif user_data['new_module']['type'] == 'w_4' and user_data['new_module']['translation']:
+                    exc = 'be\nwas\nbeen'
+                elif user_data['new_module']['type'] == 'w_4' and not user_data['new_module']['translation']:
+                    exc = 'be\nwas\nbeen\nбыть'
+
+                # Пояснение пользователю, что именно нужно вводить
+                if user_data['new_module']['translation']:
+                    explanation = 'Введите {} формы слова на иностранном языке,'.format(str(words))
+                else:
+                    explanation = 'Введите {} формы слова на иностранном языке и перевод,'.format(str(words - 1))
+                text = '{} разделяя их переносом строки (с компьютера - Shift + Enter)' \
+                       '\nНапример:\n{}'.format(explanation, exc)
+            bot.send_message(update.effective_user.id, text)
+            if user_data['new_module']['translation']:
+                user_data['new_module']['step'] = 'ask_second_word'
+                return 'ask_second_word'
+            else:
+                user_data['new_module']['step'] = 'get_pair'
+                return 'get_pair'
+    except:
+        traceback.print_exc()
+
+
+def ask_second_word(bot, update, user_data):
+    text = update.message.text
+    if update.message.text == '📥 Сохранить модуль':
+        return ask_about_finishing_adding(bot, update, user_data)
+    w_t = not ((user_data['new_module']['type'] == 'w_t' or user_data['new_module']['type'] == 'w_t_e') and len(
+        text.split('\n'))) == 1
+    w_3_t = not (user_data['new_module']['type'] == 'w_3' and user_data['new_module']['translation'] and len(
+        text.split('\n')) == 2)
+    w_3_f = not (user_data['new_module']['type'] == 'w_3' and (not user_data['new_module']['translation']) and len(
+        text.split('\n')) == 3)
+    w_4_t = not (user_data['new_module']['type'] == 'w_4' and user_data['new_module']['translation'] and len(
+        text.split('\n')) == 3)
+    w_4_f = not (user_data['new_module']['type'] == 'w_4' and (not user_data['new_module']['translation']) and len(
+        text.split('\n')) == 4)
+    if not (w_t or w_3_t or w_3_f or w_4_f or w_4_t):
+        bot.send_message(update.effective_user.id, 'Вы ввели что-то не то')
+        user_data['new_module']['step'] = 'ask_first_word'
+        return 'ask_first_word'
+
+    user_data['new_module']['second'] = []
+
+    user_data['new_module']['first'] = text
+    if user_data['new_module']['translation']:
+        user_data['new_module']['translation_options'] = translate(text.split('\n')[0],
+                                                                   user_data['new_module']['language'].split('-')[
+                                                                       0] + '-ru')
+    else:
+        user_data['new_module']['translation_options'] = []
+
+    if user_data['new_module']['translation'] and not user_data['new_module']['translation_options']:
+        text = 'К сожалению мы не нашли ни одного перевода этого слова с указанного языка. ' \
+               'Введите свои варианты перевода (не более трех)'
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton(text='⛔️Закончить⛔', callback_data='finish_translation')]])
+        user_data['last_message'] = bot.send_message(update.effective_user.id, text, reply_markup=keyboard)
+        user_data['new_module']['step'] = 'ask_translation'
+        return 'ask_translation'
+    elif not user_data['new_module']['translation']:
+        text = 'Введите свой вариант перевода'
+        keyboard = InlineKeyboardMarkup(
+            [[InlineKeyboardButton(text='⛔️Закончить⛔', callback_data='finish_translation')]])
+        bot.send_message(update.effective_user.id, text, reply_markup=keyboard)
+        user_data['last_message'] = user_data['new_module']['step'] = 'ask_translation'
+        return 'ask_translation'
+    else:
+        text = 'Выберите наиболее подходящие вам варианты перевода. Также можете прислать свои варианты ' \
+               '(просто введите их). Вы можете выбрать до ТРЕХ вариантов перевода (или меньше), включая свои ' \
+               'собственные. Выбрав один, нажмите на кнопку с другим переводом. Если вам достаточно менее трех ' \
+               'переводов, нажмите кнопку "⛔️Закончить⛔️"'
+        keyboard = [[InlineKeyboardButton(text=i, callback_data='add_translation|' + i)] for i in
+                    user_data['new_module']['translation_options']]
+        keyboard.append([InlineKeyboardButton(text='⛔️Закончить⛔', callback_data='finish_translation')])
+        user_data['last_message'] = bot.send_message(update.effective_user.id, text,
+                                                     reply_markup=InlineKeyboardMarkup(keyboard))
+        user_data['new_module']['step'] = 'ask_translation'
+        return 'ask_translation'
+
+
+def ask_translation(bot, update, user_data):
+    try:
+        translation = update.message.text
+        print(translation)
+        if update.message.text == '📥 Сохранить модуль':
+            return ask_about_finishing_adding(bot, update, user_data)
+    except:
+        translation = update.callback_query.data.split('|')[-1]
+        if translation == 'finish_translation':
+            bot.delete_message(chat_id=update.effective_user.id,
+                               message_id=user_data['last_message'].message_id)
+            user_data['last_message'] = None
+            user_data['new_module']['step'] = ask_first_word(bot, update, user_data)
+            return user_data['new_module']['step']
+        else:
+            bot.send_message(update.effective_user.id, translation)
+
+    user_data['new_module']['second'].append(translation)
+
+    if len(user_data['new_module']['second']) == 3:
+        bot.send_message(update.effective_user.id, 'Вы ввели 3 варианта перевода. Больше нельзя')
+        user_data['new_module']['step'] = ask_first_word(bot, update, user_data)
+        return user_data['new_module']['step']
+    else:
+        user_data['new_module']['step'] = 'ask_translation'
+        return 'ask_translation'
+
+
+def ask_about_finishing_adding(bot, update, user_data):
+    if update.message.text == '📥 Сохранить модуль':
+        keyboard = [[InlineKeyboardButton(text='Завершить', callback_data='finish')],
+                    [InlineKeyboardButton(text='Продолжить', callback_data='continue')]]
+        text = 'Вы действительно хотите завершить?'
+        if 'sets' not in user_data['new_module'].keys() or not user_data['new_module']['sets']:
+            text += 'Вы не создали ни одной пары, модуль не будет сохранен'
+        user_data['last_message'] = bot.send_message(update.effective_user.id, 'Вы действительно хотите завершить?',
+                                                     reply_markup=InlineKeyboardMarkup(keyboard))
+        return 'receive_answer_about_finishing_adding'
+    else:
+        bot.send_message(update.effective_user.id, 'Я вас не понимаю, но вы продолжайте '
+                                                   'с того же места, где прервались')
+        return user_data['new_module']['step']
+
+
+def receive_answer_about_finishing_adding(bot, update, user_data):
+    bot.delete_message(chat_id=update.effective_user.id,
+                       message_id=user_data['last_message'].message_id)
+    user_data['last_message'] = None
+    if update.callback_query.data == 'finish':
+        try:
+            if user_data['new_module']['sets']:
+                module = db_work.ModulesDB(user_id=update.effective_user.id,
+                                           name=user_data['new_module']['name'],
+                                           type=user_data['new_module']['type'],
+                                           lang=user_data['new_module']['language'])
+                db_work.db.session.add(module)
+                db_work.db.session.commit()
+                module_id = db_work.ModulesDB.query.filter_by(
+                    name=user_data['new_module']['name']).first().module_id
+                for s in user_data['new_module']['sets']:
+                    words = s['first'].split('\n') + s['second']
+                    new_set = db_work.WordsSets(module_id=module_id,
+                                                word1=words[0].strip(),
+                                                word2=words[1].strip(),
+                                                word3='' if len(words) < 3 else words[2].strip(),
+                                                word4='' if len(words) < 4 else words[3].strip(),
+                                                image='')
+                    db_work.db.session.add(new_set)
+                db_work.db.session.commit()
+                bot.send_message(update.effective_user.id, 'Модуль сохранен!')
+            else:
+                bot.send_message(update.effective_user.id, 'Так как модуль был пустым, он не был сохранен')
+            return back_to_menu(bot, update, user_data)
+        except Exception:
+            traceback.print_exc()
+            return back_to_menu(bot, update, user_data)
+    elif update.callback_query.data == 'continue':
+        bot.send_message(update.effective_user.id, 'Хорошо, продолжайте ровно там же, где и закончили')
+        return user_data['new_module']['step']
+
+
+def get_term(bot, update, user_data):
+    pass
 
 
 if __name__ == '__main__':
